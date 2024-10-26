@@ -415,6 +415,7 @@ mod test {
     #[test_case("PUB subj -3\r\nyes\r\n", InvalidInput; "pub message invalid negative size")]
     #[test_case("PUB subj x\r\nyes\r\n", InvalidInput; "pub message invalid size not a number")]
     #[test_case("PUB subj 3\r\ntoolong\r\n", InvalidInput; "pub message too long")]
+    #[test_case("PUB subj 30\r\nyeah\r\n", InvalidInput; "pub message too short")]
     #[test_case("SUB\r\n", InvalidInput; "sub without arg")]
     #[test_case("SUB s\r\n", InvalidInput; "sub not enough arg")]
     fn test_parse_fail(input: &str, expected: ParseError) {
