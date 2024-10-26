@@ -1,0 +1,16 @@
+listener = "127.0.0.1:8080"
+
+[[servers]]
+id = "1"
+url = "localhost:8081"
+health_check_url = "localhost:8081"
+
+[[servers]]
+id = "2"
+url = "localhost:8082"
+health_check_url = "localhost:8082"
+
+[[servers]]
+id = "3"
+url = "localhost:8083"
+health_check_url = "localhost:8083"
