@@ -1,15 +1,17 @@
 mod parser;
 mod config;
+mod server;
 
 use std::env;
 use std::error::Error;
 use std::sync::Arc;
 use env_logger::Env;
-use log::info;
+use log::{error, info};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
+use crate::server::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -26,7 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let listener = TcpListener::bind(conf.listener).await?;
-    // let lb = Arc::new(LoadBalancer::new(conf.servers));
+    let server = Arc::new(Server::new());
 
     // trigger initial healthcheck
     // lb.health_check().await;
@@ -46,21 +48,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         tokio::select! {
-            // result = listener.accept() => {
-            //     match result {
-            //         Ok((socket, _)) => {
-            //             let lb = lb.clone();
-            //             tokio::spawn(async move {
-            //                 if let Err(e) = lb.handle(socket).await {
-            //                     error!("Error handling request: {}", e);
-            //                 }
-            //             });
-            //         }
-            //         Err(e) => {
-            //             error!("Error accepting connection {:?}", e);
-            //         }
-            //     }
-            // }
+            result = listener.accept() => {
+                match result {
+                    Ok((socket, _)) => {
+                        let lb = server.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = lb.handle(socket).await {
+                                error!("error handling request: {}", e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        error!("error accepting connection {:?}", e);
+                    }
+                }
+            }
 
             _ = shutdown_rx.recv() => {
                 info!("Shutting down");

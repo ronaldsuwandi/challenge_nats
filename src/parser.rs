@@ -368,8 +368,8 @@ impl ClientRequest {
         Ok(Noop)
     }
 
-    pub fn new() -> ClientRequest {
-        ClientRequest {
+    pub fn new() -> Self {
+        Self {
             parser_state: ParserState::OP_START,
             arg_buffer: vec![],
             msg_buffer: vec![],
@@ -433,6 +433,7 @@ mod test {
     #[test_case("SUB\tsubject\tid\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command with tab")]
     #[test_case("PUB subject 5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command")]
     #[test_case("PUB\tsubject\t5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command with tab")]
+    #[test_case("PUB subject 0\r\n\r\n", Pub{subject: "subject".to_string(), msg: "".to_string()}; "pub command empty message")]
     fn test_parse_ok(input: &str, expected: Command) {
         let mut client = ClientRequest::new();
         let actual = client.parse(input.as_bytes()).unwrap();
