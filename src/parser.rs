@@ -8,7 +8,6 @@ use crate::parser::ParseError::{InvalidInput, NotAPositiveInt};
 #[derive(Debug, PartialEq, Eq)]
 enum ParserState {
     OP_START,
-    PARSE_ERROR,
 
     OP_C,
     OP_CO,
@@ -59,22 +58,24 @@ pub enum ParseError {
 
 fn split_arg(buf: &[char]) -> Vec<Vec<char>> {
     let mut result: Vec<Vec<char>> = Vec::new();
-    let mut temp = Vec::<char>::new();
-    for c in buf.iter() {
+    let mut start = None;
+    for (i, c) in buf.iter().enumerate() {
         match c {
             ' ' | '\t' => {
-                if !temp.is_empty() {
-                    result.push(temp.clone());
-                    temp.clear();
+                if let Some(start_index) = start {
+                    result.push(buf[start_index..i].into());
+                    start = None;
                 }
             }
             _ => {
-                temp.push(*c);
+                if start.is_none() {
+                    start = Some(i);
+                }
             }
         }
     }
-    if !temp.is_empty() {
-        result.push(temp.clone());
+    if let Some(start_index) = start {
+        result.push(buf[start_index..].into());
     }
     result
 }
@@ -358,8 +359,7 @@ impl ClientRequest {
                     }
                 }
                 _ => {
-                    self.parser_state = PARSE_ERROR;
-                    println!("BOO")
+                    return self.parse_error();
                 }
             }
         }
