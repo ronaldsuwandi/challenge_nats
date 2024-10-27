@@ -1,50 +1,41 @@
 use std::str::from_utf8;
-use log::{error};
+use log::error;
 use thiserror::Error;
 use ParserState::*;
-use Command::*;
+use crate::commands::Command;
+use crate::commands::Command::*;
 use crate::parser::ParseError::{InvalidInput, NotAPositiveInt};
 
 #[derive(Debug, PartialEq, Eq)]
 enum ParserState {
-    OP_START,
+    OpStart,
 
-    OP_C,
-    OP_CO,
-    OP_CON,
-    OP_CONN,
-    OP_CONNE,
-    OP_CONNEC,
-    OP_CONNECT,
-    CONNECT_ARG,
+    OpC,
+    OpCo,
+    OpCon,
+    OpConn,
+    OpConne,
+    OpConnec,
+    OpConnect,
+    ConnectArg,
 
-    OP_P,
-    OP_PI,
-    OP_PIN,
-    OP_PING,
-    OP_PO,
-    OP_PON,
-    OP_PONG,
-    OP_PU,
-    OP_PUB,
-    PUB_ARG,
-    PUB_MSG,
+    OpP,
+    OpPi,
+    OpPin,
+    OpPing,
+    OpPo,
+    OpPon,
+    OpPong,
+    OpPu,
+    OpPub,
+    PubArg,
+    PubMsg,
 
-    OP_S,
-    OP_SU,
-    OP_SUB,
+    OpS,
+    OpSu,
+    OpSub,
 
-    SUB_ARG,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Command {
-    Noop,
-    Connect(String),
-    Pub{subject: String, msg: String},
-    Sub{subject: String, id: String},
-    Ping,
-    Pong,
+    SubArg,
 }
 
 #[non_exhaustive]
@@ -102,7 +93,7 @@ pub struct ClientRequest {
 
 impl ClientRequest {
     fn reset_state(&mut self) {
-        self.parser_state = OP_START;
+        self.parser_state = OpStart;
         self.arg_buffer.clear();
         self.msg_buffer.clear();
         self.args.clear();
@@ -126,65 +117,65 @@ impl ClientRequest {
             let c: char = (*b).into();
 
             match self.parser_state {
-                OP_START => {
+                OpStart => {
                     match c {
                         'C' | 'c' => {
-                            self.parser_state = OP_C;
+                            self.parser_state = OpC;
                         }
                         'P' | 'p' => {
-                            self.parser_state = OP_P;
+                            self.parser_state = OpP;
                         }
                         'S' | 's' => {
-                            self.parser_state = OP_S;
+                            self.parser_state = OpS;
                         }
                         _ => return self.parse_error()
                     }
                 }
 
-                OP_C => {
+                OpC => {
                     match c {
-                        'O' | 'o' => self.parser_state = OP_CO,
+                        'O' | 'o' => self.parser_state = OpCo,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_CO => {
+                OpCo => {
                     match c {
-                        'N' | 'n' => self.parser_state = OP_CON,
+                        'N' | 'n' => self.parser_state = OpCon,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_CON => {
+                OpCon => {
                     match c {
-                        'N' | 'n' => self.parser_state = OP_CONN,
+                        'N' | 'n' => self.parser_state = OpConn,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_CONN => {
+                OpConn => {
                     match c {
-                        'E' | 'e' => self.parser_state = OP_CONNE,
+                        'E' | 'e' => self.parser_state = OpConne,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_CONNE => {
+                OpConne => {
                     match c {
-                        'C' | 'c' => self.parser_state = OP_CONNEC,
+                        'C' | 'c' => self.parser_state = OpConnec,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_CONNEC => {
+                OpConnec => {
                     match c {
-                        'T' | 't' => self.parser_state = OP_CONNECT,
+                        'T' | 't' => self.parser_state = OpConnect,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_CONNECT => {
+                OpConnect => {
                     match c {
-                        ' '|'\t' => self.parser_state = CONNECT_ARG,
+                        ' '|'\t' => self.parser_state = ConnectArg,
                         _ => return self.parse_error(),
                     }
                 }
 
-                CONNECT_ARG => {
+                ConnectArg => {
                     match c {
                         '\n' => {
                             let arg: String = self.arg_buffer.iter().collect();
@@ -200,27 +191,27 @@ impl ClientRequest {
                     }
                 }
 
-                OP_P => {
+                OpP => {
                     match c {
-                        'I' | 'i' => self.parser_state = OP_PI,
-                        'O' | 'o' => self.parser_state = OP_PO,
-                        'U' | 'u' => self.parser_state = OP_PU,
+                        'I' | 'i' => self.parser_state = OpPi,
+                        'O' | 'o' => self.parser_state = OpPo,
+                        'U' | 'u' => self.parser_state = OpPu,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PI => {
+                OpPi => {
                     match c {
-                        'N' | 'n' => self.parser_state = OP_PIN,
+                        'N' | 'n' => self.parser_state = OpPin,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PIN => {
+                OpPin => {
                     match c {
-                        'G' | 'g' => self.parser_state = OP_PING,
+                        'G' | 'g' => self.parser_state = OpPing,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PING => {
+                OpPing => {
                     match c {
                         '\n' => {
                             return self.return_command(Ping);
@@ -229,19 +220,19 @@ impl ClientRequest {
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PO => {
+                OpPo => {
                     match c {
-                        'N' | 'n' => self.parser_state = OP_PON,
+                        'N' | 'n' => self.parser_state = OpPon,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PON => {
+                OpPon => {
                     match c {
-                        'G' | 'g' => self.parser_state = OP_PONG,
+                        'G' | 'g' => self.parser_state = OpPong,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PONG => {
+                OpPong => {
                     match c {
                         '\n' => {
                             return self.return_command(Pong);
@@ -250,19 +241,19 @@ impl ClientRequest {
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PU => {
+                OpPu => {
                     match c {
-                        'B' | 'b' => self.parser_state = OP_PUB,
+                        'B' | 'b' => self.parser_state = OpPub,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_PUB => {
+                OpPub => {
                     match c {
-                        ' '|'\t' => self.parser_state = PUB_ARG,
+                        ' '|'\t' => self.parser_state = PubArg,
                         _ => return self.parse_error(),
                     }
                 }
-                PUB_ARG => {
+                PubArg => {
                     match c {
                         '\n' => {
                             let args = split_arg(&self.arg_buffer);
@@ -275,7 +266,7 @@ impl ClientRequest {
                                 Ok(size) => {
                                     self.args = args;
                                     self.msg_size = size as usize;
-                                    self.parser_state = PUB_MSG;
+                                    self.parser_state = PubMsg;
                                 }
                                 Err(e) => {
                                     error!("error parsing number: {}", e);
@@ -289,7 +280,7 @@ impl ClientRequest {
                         }
                     }
                 }
-                PUB_MSG => {
+                PubMsg => {
                     match c {
                         '\n' => {
                             if msg_counter != self.msg_size {
@@ -303,7 +294,7 @@ impl ClientRequest {
                                     self.return_command(Pub{subject: arg, msg: msg.to_string()})
                                 }
                                 Err(e) => {
-                                    error!("error parsing utf8 PUB message for subject {}", arg);
+                                    error!("error parsing utf8 PUB message for subject {}: {}", arg, e);
                                     self.parse_error()
                                 }
                             };
@@ -320,26 +311,26 @@ impl ClientRequest {
                     }
                 }
 
-                OP_S => {
+                OpS => {
                     match c {
-                        'U' | 'u' => self.parser_state = OP_SU,
+                        'U' | 'u' => self.parser_state = OpSu,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_SU => {
+                OpSu => {
                     match c {
-                        'B' | 'b' => self.parser_state = OP_SUB,
+                        'B' | 'b' => self.parser_state = OpSub,
                         _ => return self.parse_error(),
                     }
                 }
-                OP_SUB => {
+                OpSub => {
                     match c {
-                        ' '|'\t' => self.parser_state = SUB_ARG,
+                        ' '|'\t' => self.parser_state = SubArg,
                         _ => return self.parse_error(),
 
                     }
                 }
-                SUB_ARG => {
+                SubArg => {
                     match c {
                         '\n' => {
                             let args = split_arg(&self.arg_buffer);
@@ -358,9 +349,6 @@ impl ClientRequest {
                         }
                     }
                 }
-                _ => {
-                    return self.parse_error();
-                }
             }
         }
 
@@ -370,7 +358,7 @@ impl ClientRequest {
 
     pub fn new() -> Self {
         Self {
-            parser_state: ParserState::OP_START,
+            parser_state: ParserState::OpStart,
             arg_buffer: vec![],
             msg_buffer: vec![],
             msg_size: 0,
@@ -389,15 +377,15 @@ mod test {
     }
 
 
-    #[test_case("PING", OP_PING; "ping")]
-    #[test_case("PONG", OP_PONG; "pong")]
-    #[test_case("CONNECT {}", CONNECT_ARG; "connect arg")]
-    #[test_case("PUB subject", PUB_ARG; "pub arg")]
-    #[test_case("PUB subject 3", PUB_ARG; "pub arg with msg len")]
-    #[test_case("PUB subject 3\r\n", PUB_MSG; "pub arg with msg len before message")]
-    #[test_case("PUB subject 3\r\nyes", PUB_MSG; "pub arg with msg len and message")]
-    #[test_case("SUB subject", SUB_ARG; "sub arg")]
-    #[test_case("SUB subject id", SUB_ARG; "sub arg with id")]
+    #[test_case("PING", OpPing; "ping")]
+    #[test_case("PONG", OpPong; "pong")]
+    #[test_case("CONNECT {}", ConnectArg; "connect arg")]
+    #[test_case("PUB subject", PubArg; "pub arg")]
+    #[test_case("PUB subject 3", PubArg; "pub arg with msg len")]
+    #[test_case("PUB subject 3\r\n", PubMsg; "pub arg with msg len before message")]
+    #[test_case("PUB subject 3\r\nyes", PubMsg; "pub arg with msg len and message")]
+    #[test_case("SUB subject", SubArg; "sub arg")]
+    #[test_case("SUB subject id", SubArg; "sub arg with id")]
     fn test_parse_state_ok(input: &str, expected: ParserState) {
         init();
         let mut client = ClientRequest::new();

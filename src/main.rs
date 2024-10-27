@@ -1,17 +1,21 @@
 mod parser;
 mod config;
 mod server;
+// mod response;
+pub mod commands;
+mod handlers;
+mod core;
 
+use crate::server::Server;
+use env_logger::Env;
+use log::{error, info};
 use std::env;
 use std::error::Error;
 use std::sync::Arc;
-use env_logger::Env;
-use log::{error, info};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-use crate::server::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -51,11 +55,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             result = listener.accept() => {
                 match result {
                     Ok((socket, _)) => {
-                        let lb = server.clone();
+                        let server = server.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = lb.handle(socket).await {
-                                error!("error handling request: {}", e);
-                            }
+                            server.handle(socket).await;
                         });
                     }
                     Err(e) => {
@@ -63,16 +65,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-
+    
             _ = shutdown_rx.recv() => {
                 info!("Shutting down");
                 break;
             }
         }
     }
+
     Ok(())
 }
-
 
 async fn signal_handlers(shutdown_tx: Sender<()>) {
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
@@ -90,3 +92,5 @@ async fn signal_handlers(shutdown_tx: Sender<()>) {
        }
     }
 }
+
+
