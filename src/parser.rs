@@ -119,16 +119,11 @@ impl ClientRequest {
             match self.parser_state {
                 OpStart => {
                     match c {
-                        'C' | 'c' => {
-                            self.parser_state = OpC;
-                        }
-                        'P' | 'p' => {
-                            self.parser_state = OpP;
-                        }
-                        'S' | 's' => {
-                            self.parser_state = OpS;
-                        }
-                        _ => return self.parse_error()
+                        'C' | 'c' => self.parser_state = OpC,
+                        'P' | 'p' => self.parser_state = OpP,
+                        'S' | 's' => self.parser_state = OpS,
+                        '\r'|'\n' => return self.return_command(Noop),
+                        _ => return self.parse_error(),
                     }
                 }
 

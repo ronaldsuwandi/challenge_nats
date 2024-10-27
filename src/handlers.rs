@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use crate::commands::Command;
 use crate::parser::ClientRequest;
 use crate::server::Server;
@@ -71,16 +72,17 @@ impl Server {
         socket.write_all(b"PONG\n").await?;
         Ok(())
     }
+    
 
     async fn handle_commands(&self, cmd: Command, socket: &mut TcpStream) {
         let cmd_result = match cmd {
-            // Command::Noop => {}
+            Command::Noop => { Ok(()) }
             Command::Connect(_) => self.handle_connect(socket).await,
             // Command::Pub { .. } => {}
             // Command::Sub { .. } => {}
             Command::Ping => self.handle_ping(socket).await,
-            // Command::Pong => {}
-            _ => { Ok(()) }
+            Command::Pong => { Ok(()) }
+            _ => { Err(Error::new(ErrorKind::Other, "unknown command")) }
         };
 
         if let Some(e) = cmd_result.err() {
