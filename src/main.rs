@@ -1,10 +1,8 @@
 mod parser;
 mod config;
 mod server;
-// mod response;
 pub mod commands;
 mod handlers;
-mod core;
 
 use crate::server::Server;
 use env_logger::Env;
@@ -20,7 +18,7 @@ use tokio::sync::mpsc::Sender;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::Builder::from_env(Env::default()
-        .default_filter_or("info"))
+        .default_filter_or("debug"))
         .init();
 
     let conf_path = env::args().nth(1).unwrap_or_else(|| { "config.toml".to_string() });
@@ -33,22 +31,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let listener = TcpListener::bind(conf.listener).await?;
     let server = Arc::new(Server::new());
-
-    // trigger initial healthcheck
-    // lb.health_check().await;
-
-    // let lb_clone = lb.clone();
-
-    // tokio::spawn(async move {
-    //     loop {
-    //         tokio::select! {
-    //             _ = sleep(Duration::from_secs(5)) => {
-    //                 debug!("Executing health check...");
-    //                 lb_clone.health_check().await;
-    //             }
-    //         }
-    //     }
-    // });
 
     loop {
         tokio::select! {
@@ -65,7 +47,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-    
+
             _ = shutdown_rx.recv() => {
                 info!("Shutting down");
                 break;
@@ -73,7 +55,48 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // let x = Name{name: "x".to_string()};
+    // let y = Name{name: "y".to_string()};
+    //
+    // let x2 = Arc::new(std::sync::Mutex::new(x));
+    // // let mut y2 = Arc::new(y);
+    // // let z = Name{name: "z".to_string()};
+    //
+    // let x3 = x2.clone();
+    //
+    // let v = vec![x3];
+    //
+    //
+    // println!("{:?}", v);
+    //
+    // let mut x2obj = x2.lock().unwrap();
+    // x2obj.change("new".to_string());
+    // drop(x2obj);
+    // drop(x2);
+    // drop(x3);
+
+    // drop(x);
+    // println!("n=>{:?}",v);
+
     Ok(())
+}
+
+#[derive(Debug)]
+struct Name {
+    name: String,
+}
+
+impl Name {
+    fn change(&mut self, new_name: String) {
+        self.name = new_name;
+    }
+}
+
+impl Drop for Name {
+    fn drop(&mut self) {
+        println!("dropping {} ", self.name);
+        drop(self)
+    }
 }
 
 async fn signal_handlers(shutdown_tx: Sender<()>) {
