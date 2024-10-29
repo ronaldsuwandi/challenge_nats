@@ -44,7 +44,7 @@ pub enum ParseError {
     #[error("invalid input")]
     InvalidInput,
     #[error("not a positive int")]
-    NotAPositiveInt
+    NotAPositiveInt,
 }
 
 fn split_arg(buf: &[char]) -> Vec<Vec<char>> {
@@ -122,7 +122,7 @@ impl ClientRequest {
                         'C' | 'c' => self.parser_state = OpC,
                         'P' | 'p' => self.parser_state = OpP,
                         'S' | 's' => self.parser_state = OpS,
-                        '\r'|'\n' => return self.return_command(Noop),
+                        '\r' | '\n' => return self.return_command(Noop),
                         _ => return self.parse_error(),
                     }
                 }
@@ -165,7 +165,7 @@ impl ClientRequest {
                 }
                 OpConnect => {
                     match c {
-                        ' '|'\t' => self.parser_state = ConnectArg,
+                        ' ' | '\t' => self.parser_state = ConnectArg,
                         _ => return self.parse_error(),
                     }
                 }
@@ -244,7 +244,7 @@ impl ClientRequest {
                 }
                 OpPub => {
                     match c {
-                        ' '|'\t' => self.parser_state = PubArg,
+                        ' ' | '\t' => self.parser_state = PubArg,
                         _ => return self.parse_error(),
                     }
                 }
@@ -286,7 +286,7 @@ impl ClientRequest {
                             let arg: String = self.args[0].iter().collect();
                             return match from_utf8(&self.msg_buffer) {
                                 Ok(msg) => {
-                                    self.return_command(Pub{subject: arg, msg: msg.to_string()})
+                                    self.return_command(Pub { subject: arg, msg: msg.to_string() })
                                 }
                                 Err(e) => {
                                     error!("error parsing utf8 PUB message for subject {}: {}", arg, e);
@@ -320,9 +320,8 @@ impl ClientRequest {
                 }
                 OpSub => {
                     match c {
-                        ' '|'\t' => self.parser_state = SubArg,
+                        ' ' | '\t' => self.parser_state = SubArg,
                         _ => return self.parse_error(),
-
                     }
                 }
                 SubArg => {
@@ -333,7 +332,7 @@ impl ClientRequest {
                                 return self.parse_error();
                             }
 
-                            return self.return_command(Sub{
+                            return self.return_command(Sub {
                                 subject: args[0].iter().collect(),
                                 id: args[1].iter().collect(),
                             });
@@ -412,11 +411,16 @@ mod test {
     #[test_case("CONNECT\t{}\r\n", Connect("{}".to_string()); "connect with tab")]
     #[test_case("PING\r\n", Ping; "ping command")]
     #[test_case("PONG\r\n", Pong; "pong command")]
-    #[test_case("SUB subject id\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command")]
-    #[test_case("SUB\tsubject\tid\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command with tab")]
-    #[test_case("PUB subject 5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command")]
-    #[test_case("PUB\tsubject\t5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command with tab")]
-    #[test_case("PUB subject 0\r\n\r\n", Pub{subject: "subject".to_string(), msg: "".to_string()}; "pub command empty message")]
+    #[test_case("SUB subject id\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command"
+    )]
+    #[test_case("SUB\tsubject\tid\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command with tab"
+    )]
+    #[test_case("PUB subject 5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command"
+    )]
+    #[test_case("PUB\tsubject\t5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command with tab"
+    )]
+    #[test_case("PUB subject 0\r\n\r\n", Pub{subject: "subject".to_string(), msg: "".to_string()}; "pub command empty message"
+    )]
     fn test_parse_ok(input: &str, expected: ClientCommand) {
         let mut client = ClientRequest::new();
         let actual = client.parse(input.as_bytes()).unwrap();
@@ -426,8 +430,10 @@ mod test {
 
     #[test_case(vec!['s','u','p'], vec![vec!['s','u','p']]; "one arg")]
     #[test_case(vec!['s','u','p',' ',' '], vec![vec!['s','u','p']]; "one arg extra space")]
-    #[test_case(vec!['s','u','p',' ','1','2','3'], vec![vec!['s','u','p'], vec!['1','2','3']]; "two args")]
-    #[test_case(vec!['s','u','p','\t','1','2','3'], vec![vec!['s','u','p'], vec!['1','2','3']]; "two args with tab")]
+    #[test_case(vec!['s','u','p',' ','1','2','3'], vec![vec!['s','u','p'], vec!['1','2','3']]; "two args"
+    )]
+    #[test_case(vec!['s','u','p','\t','1','2','3'], vec![vec!['s','u','p'], vec!['1','2','3']]; "two args with tab"
+    )]
     fn test_split_args(input: Vec<char>, expected_output: Vec<Vec<char>>) {
         init();
         let actual = split_arg(&input);

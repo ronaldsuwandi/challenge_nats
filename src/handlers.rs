@@ -89,7 +89,6 @@ impl Server {
         if let Err(e) = self.main_tx.send(Disconnect { client_id }).await {
             error!("error sending to main channel: {}", e);
         }
-
     }
 
     async fn handle_new_connection(&self, socket: &mut TcpStream) -> Result<(), Error> {

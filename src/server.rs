@@ -43,14 +43,14 @@ impl Server {
             match command {
                 MainCommand::Noop => {}
                 MainCommand::Connect { client_id, tx } => self.process_connect(client_id, tx).await,
-                MainCommand::Disconnect { client_id} => self.process_disconnect(client_id).await,
+                MainCommand::Disconnect { client_id } => self.process_disconnect(client_id).await,
                 MainCommand::Subscribe { client_id, subject, subscription_id } => self.process_subscribe(client_id, subject, subscription_id).await,
                 MainCommand::Publish { subject, msg } => self.process_publish(subject, msg).await,
-                MainCommand::PublishedMessage {..} => warn!("server received published message"),
+                MainCommand::PublishedMessage { .. } => warn!("server received published message"),
                 MainCommand::ShutDown => {
                     self.process_shutdown().await;
                     break;
-                },
+                }
             }
         }
         info!("stopping process_rx");

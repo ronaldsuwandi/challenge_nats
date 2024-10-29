@@ -2,7 +2,7 @@ use crate::server::Server;
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{RwLockWriteGuard};
+use tokio::sync::RwLockWriteGuard;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientCommand {
@@ -49,7 +49,7 @@ impl Server {
         // sid->cid
         //s1 -> [c1,c2]
         //s2 -> [c2]
-        
+
         // TODO for now just focus on cid
         let mut subscription_id_to_client_id = self.subscription_id_to_client_id.write().await;
         let mut client_id_to_subscription_id = self.client_id_to_subscription_id.write().await;
@@ -85,41 +85,28 @@ impl Server {
         let subscription_id_to_client_id = self.subscription_id_to_client_id.read().await;
         let clients_tx = self.clients_tx.read().await;
 
-        match subscription_subject_to_id.get(&subject) {
-            Some(subscription_ids) => {
-                for subscription_id in subscription_ids {
-                    match subscription_id_to_client_id.get(subscription_id) {
-                        Some(client_ids) => {
-                            for client_id in client_ids {
-                                match clients_tx.get(client_id) {
-                                    Some(tx) => {
-                                        let client_id = *client_id;
-                                        let client_tx = tx.clone();
-                                        let subscription_id = subscription_id.clone();
-                                        let subject = subject.clone();
-                                        let msg = msg.clone();
-                                        info!("publishing message to client id {} for subject {}", client_id, subject);
-                                        tokio::spawn(async move {
-                                            if let Err(e) = client_tx.send(MainCommand::PublishedMessage { subject, msg, subscription_id }).await {
-                                                error!("error sending message to client {}: {}", client_id, e);
-                                            }
-                                        });
-                                    }
-                                    None => {
-                                        warn!("unable to find client tx for client id {}", client_id);
-                                    }
-                                }
-                            }
-                        }
-                        None => {
-                            warn!("unable to find client ids for subscription id {}", subscription_id);
+        if let Some(subscription_ids) = subscription_subject_to_id.get(&subject) {
+            for subscription_id in subscription_ids {
+                if let Some(client_ids) = subscription_id_to_client_id.get(subscription_id) {
+                    for client_id in client_ids {
+                        if let Some(tx) = clients_tx.get(client_id) {
+                            send_message(
+                                *client_id,
+                                tx.clone(),
+                                subscription_id.clone(),
+                                subject.clone(),
+                                msg.clone(),
+                            );
+                        } else {
+                            warn!("unable to find client tx for client id {}", client_id);
                         }
                     }
-               }
+                } else {
+                    warn!("unable to find client ids for subscription id {}", subscription_id);
+                }
             }
-            None => {
-                warn!("unable to find subscription id for subject: {}", subject);
-            }
+        } else {
+            warn!("unable to find subscription id for subject: {}", subject);
         }
     }
 
@@ -135,8 +122,10 @@ impl Server {
     }
 }
 
-fn insert_to_subscription_map<K,V>(mut map: RwLockWriteGuard<HashMap<K, HashSet<V>>>, key: K, value: V) where
-K: Eq + std::hash::Hash, V: Eq + std::hash::Hash
+fn insert_to_subscription_map<K, V>(mut map: RwLockWriteGuard<HashMap<K, HashSet<V>>>, key: K, value: V)
+where
+    K: Eq + std::hash::Hash,
+    V: Eq + std::hash::Hash,
 {
     match map.get_mut(&key) {
         Some(values) => {
@@ -147,4 +136,13 @@ K: Eq + std::hash::Hash, V: Eq + std::hash::Hash
             map.insert(key, values);
         }
     }
+}
+
+fn send_message(client_id: u32, client_tx: Sender<MainCommand>, subscription_id: String, subject: String, msg: String) {
+    info!("publishing message to client id {} for subject {}", client_id, subject);
+    tokio::spawn(async move {
+        if let Err(e) = client_tx.send(MainCommand::PublishedMessage { subject, msg, subscription_id }).await {
+            error!("error sending message to client {}: {}", client_id, e);
+        }
+    });
 }

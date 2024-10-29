@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server_arc = server.clone();
     let mut handles = vec![];
     let handle = tokio::spawn(async move {
-       server_arc.process_rx(main_rx).await;
+        server_arc.process_rx(main_rx).await;
     });
     handles.push(handle);
 
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     for handle in handles {
-         match timeout(Duration::from_secs(5), handle).await {
+        match timeout(Duration::from_secs(5), handle).await {
             Ok(result) => {
                 if let Err(e) = result {
                     error!("error in shutting down client: {:?}", e);
