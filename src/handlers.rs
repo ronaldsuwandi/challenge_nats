@@ -1,52 +1,13 @@
-use std::collections::{HashMap, HashSet};
-use std::io::ErrorKind;
-use std::sync::{Arc};
-use crate::commands::Command;
+use crate::commands::MainCommand::{Connect, Disconnect};
+use crate::commands::{ClientCommand, MainCommand};
 use crate::parser::ClientRequest;
 use crate::server::Server;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, Error};
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, RwLock};
 
 impl Server {
-    async fn update_clients_map(&self, socket: Arc<Mutex<TcpStream>>) -> u32 {
-        let mut clients_map = self.clients_map.write().await;
-        let new_id = self.client_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-        clients_map.insert(new_id, socket);
-
-        new_id
-    }
-
-    async fn remove_client(&self, client_id: u32) {
-
-        let _ = self.lock.lock();
-
-        debug!("cleaning up clients_map for client id {}", client_id);
-        let mut clients_map = self.clients_map.write().await;
-        clients_map.remove(&client_id);
-
-        debug!("cleaning up client_id_to_subscriptions for client id {}", client_id);
-        let mut client_id_to_subscriptions = self.client_id_to_subscriptions.write().await;
-        if let Some(subscriptions) = client_id_to_subscriptions.get(&client_id) {
-            let subscriptions = subscriptions.read().await;
-            debug!("client id {} subscriptions to clean up", subscriptions.len());
-
-            let subscription_map = self.subscription_map.read().await;
-
-            debug!("cleaning up subscriptions for client id {}", client_id);
-            for subscription in subscriptions.iter() {
-                if let(Some(client_ids)) = subscription_map.get(subscription) {
-                    let mut client_ids = client_ids.write().await;
-                    client_ids.remove(&client_id);
-                }
-            }
-        }
-        client_id_to_subscriptions.remove(&client_id);
-    }
-
     pub async fn handle(&self, mut socket: TcpStream) {
         let mut req_buffer = [0; 4096];
         let mut client_request = ClientRequest::new();
@@ -56,51 +17,79 @@ impl Server {
             return;
         }
 
-        let socket_arc = Arc::new(Mutex::new(socket));
-        let client_id = self.update_clients_map(socket_arc.clone()).await;
+        let client_id = self.client_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-        info!("client id: {}", client_id);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<MainCommand>(100);
 
-        {
-            let tmp = self.clients_map.read().await;
-            info!("map: {:?}", tmp);
+        if let Err(e) = self.main_tx.send(Connect { client_id, tx }).await {
+            error!("error sending to main channel: {}", e);
+            return;
         }
-
-        let socket_arc = socket_arc.clone();
-        let mut socket = socket_arc.lock().await;
 
         // loop here so we can stream the input (large input)
         loop {
-            // read input
-            match socket.read(&mut req_buffer).await {
-                Ok(0) => {
-                    debug!("Input stream closed");
-                    break;
-                }
-                Ok(n) => {
-                    match client_request.parse(&req_buffer[0..n]) {
-                        Ok(cmd) => {
-                            info!("command={:?}", cmd);
-                            self.handle_commands(cmd, &mut socket, client_id).await;
+            tokio::select! {
+                // read input
+                socket_result = socket.read(&mut req_buffer) => {
+                    match socket_result {
+                        Ok(0) => {
+                            debug!("Input stream closed");
+                            break;
                         }
+                        Ok(n) => {
+                            match client_request.parse(&req_buffer[0..n]) {
+                                Ok(cmd) => {
+                                    info!("command={:?}", cmd);
+                                    self.handle_commands(cmd, &mut socket, client_id).await;
+                                }
 
+                                Err(e) => {
+                                    error!("error parsing command: {}", e);
+                                    let _ = socket.write_all(b"-ERR\n").await;
+                                }
+                            };
+                        }
                         Err(e) => {
-                            error!("error parsing command: {}", e);
-                            let _ = socket.write_all(b"-ERR\n").await;
+                            error!("error: {}", e);
+                        }
+                    }
+
+                }
+
+                // read from main command channel
+                Some(cmd) = rx.recv() => {
+                    match cmd {
+                       MainCommand::PublishedMessage{subject, msg, subscription_id} => {
+                            let mut buf: Vec<u8> = vec![];
+                            let msg_bytes = msg.as_bytes();
+                            let response = format!("MSG {} {} {}\n", subject, subscription_id, msg_bytes.len());
+
+                            buf.extend_from_slice(response.as_bytes());
+                            buf.extend_from_slice(msg_bytes);
+                            buf.push(b'\n');
+
+                            if let Err(e) = socket.write_all(buf.as_slice()).await {
+                                error!("error writing to socket: {}", e);
+                            }
+                            debug!("publish message for subject {}", subject);
+                        },
+                        MainCommand::ShutDown => {
+                            info!("shutting down client {}", client_id);
+                            // skip sending disconnect command
+                            return;
+                        },
+                        _ => {
+                            warn!("received command on the client side, should be PublishedMessage or ShutDown only: {:?}", cmd);
                         }
                     };
                 }
-                Err(e) => {
-                    error!("error: {}", e);
-                }
-            };
+            }
         }
 
-        info!("client id {} disconnected", client_id);
-        self.remove_client(client_id).await;
+        if let Err(e) = self.main_tx.send(Disconnect { client_id }).await {
+            error!("error sending to main channel: {}", e);
+        }
 
-        let tmp = self.clients_map.read().await;
-        info!("map after: {:?}", tmp);
     }
 
     async fn handle_new_connection(&self, socket: &mut TcpStream) -> Result<(), Error> {
@@ -132,85 +121,31 @@ impl Server {
     async fn handle_pub(&self, subject: String, msg: String, socket: &mut TcpStream) -> Result<(), Error> {
         info!("publishing to {}", subject);
 
-        let sub_map = self.subscription_map.read().await;
-        debug!("subscription_map lock obtained");
-        if let Some(client_ids) = sub_map.get(&subject) {
-            let client_ids = client_ids.read().await;
-            debug!("client_ids lock obtained");
-
-            let clients_map = self.clients_map.read().await;
-            debug!("client_map lock obtained");
-
-            let msg_arc = Arc::new(msg);
-
-            for client_id in client_ids.iter() {
-                let client_id = *client_id;
-                debug!("client id: {}", client_id);
-                if let Some(socket) = clients_map.get(&client_id) {
-                    debug!("cloning socket and msg arc");
-                    let socket = socket.clone();
-                    let msg_arc = msg_arc.clone();
-                    debug!("spawning task");
-                    tokio::spawn(async move {
-                        debug!("-> socket lock attempt");
-                        let mut socket = socket.lock().await;
-                        debug!("socket lock obtained. writing to socket");
-                        if let Err(e) = socket.write_all(msg_arc.as_bytes()).await {
-                            error!("error publishing message to client id: {}", client_id);
-                        }
-                    });
-                }
-            }
-        } else {
-            debug!("no subscribers for subject: {}", subject);
+        if let Err(e) = self.main_tx.send(MainCommand::Publish { subject, msg }).await {
+            error!("error sending to main channel: {}", e);
         }
 
         socket.write_all(b"+OK\n").await?;
         Ok(())
     }
 
-    async fn handle_sub(&self, subject: String, id: String, client_id: u32, socket: &mut TcpStream) -> Result<(), Error> {
-        info!("client_id {} subscribing to {} (id: {})", client_id, subject, id);
-
-        let lock = self.lock.lock().await;
-
-        // atomic
-        let mut sub_map = self.subscription_map.write().await;
-        match sub_map.get_mut(&subject) {
-            Some(subscriptions) => {
-                let mut subscriptions = subscriptions.write().await;
-                subscriptions.insert(client_id);
-            },
-            None => {
-                let subscriptions = HashSet::from([client_id]);
-                sub_map.insert(subject.clone(), RwLock::new(subscriptions));
-            }
+    async fn handle_sub(&self, subject: String, subscription_id: String, client_id: u32, socket: &mut TcpStream) -> Result<(), Error> {
+        info!("client_id {} subscribing to {} (id: {})", client_id, subject, subscription_id);
+        if let Err(e) = self.main_tx.send(MainCommand::Subscribe { subject, client_id, subscription_id }).await {
+            error!("error sending to main channel: {}", e);
         }
-
-        let mut client_to_sub_map = self.client_id_to_subscriptions.write().await;
-        match client_to_sub_map.get_mut(&client_id) {
-            Some(subjects) => {
-                let mut subjects = subjects.write().await;
-                subjects.insert(subject);
-            },
-            None => {
-                let subjects = HashSet::from([subject]);
-                client_to_sub_map.insert(client_id, RwLock::new(subjects));
-            }
-        }
-        drop(lock);
+        socket.write_all(b"+OK\n").await?;
         Ok(())
     }
 
-    async fn handle_commands(&self, cmd: Command, socket: &mut TcpStream, client_id: u32) {
+    async fn handle_commands(&self, cmd: ClientCommand, socket: &mut TcpStream, client_id: u32) {
         let cmd_result = match cmd {
-            Command::Noop => { Ok(()) }
-            Command::Connect(_) => self.handle_connect(socket).await,
-            Command::Pub { subject, msg } => self.handle_pub(subject, msg, socket).await,
-            Command::Sub { subject, id } => self.handle_sub(subject, id, client_id, socket).await,
-            Command::Ping => self.handle_ping(socket).await,
-            Command::Pong => { Ok(()) }
-            _ => { Err(Error::new(ErrorKind::Other, "unknown command")) }
+            ClientCommand::Noop => { Ok(()) }
+            ClientCommand::Connect(_) => self.handle_connect(socket).await,
+            ClientCommand::Pub { subject, msg } => self.handle_pub(subject, msg, socket).await,
+            ClientCommand::Sub { subject, id } => self.handle_sub(subject, id, client_id, socket).await,
+            ClientCommand::Ping => self.handle_ping(socket).await,
+            ClientCommand::Pong => { Ok(()) }
         };
 
         if let Some(e) = cmd_result.err() {

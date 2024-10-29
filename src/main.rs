@@ -6,14 +6,17 @@ mod handlers;
 
 use crate::server::Server;
 use env_logger::Env;
-use log::{error, info};
+use log::{error, info, warn};
 use std::env;
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
+use tokio::time::timeout;
+use crate::commands::MainCommand;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -30,7 +33,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let listener = TcpListener::bind(conf.listener).await?;
-    let server = Arc::new(Server::new());
+    let (server, main_rx) = Server::new();
+    let server = Arc::new(server);
+
+    let server_arc = server.clone();
+    let mut handles = vec![];
+    let handle = tokio::spawn(async move {
+       server_arc.process_rx(main_rx).await;
+    });
+    handles.push(handle);
 
     loop {
         tokio::select! {
@@ -38,9 +49,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 match result {
                     Ok((socket, _)) => {
                         let server = server.clone();
-                        tokio::spawn(async move {
+                        let handle = tokio::spawn(async move {
                             server.handle(socket).await;
                         });
+                        handles.push(handle);
                     }
                     Err(e) => {
                         error!("error accepting connection {:?}", e);
@@ -50,53 +62,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             _ = shutdown_rx.recv() => {
                 info!("Shutting down");
+                let _ = server.main_tx.clone().send(MainCommand::ShutDown).await;
                 break;
             }
         }
     }
 
-    // let x = Name{name: "x".to_string()};
-    // let y = Name{name: "y".to_string()};
-    //
-    // let x2 = Arc::new(std::sync::Mutex::new(x));
-    // // let mut y2 = Arc::new(y);
-    // // let z = Name{name: "z".to_string()};
-    //
-    // let x3 = x2.clone();
-    //
-    // let v = vec![x3];
-    //
-    //
-    // println!("{:?}", v);
-    //
-    // let mut x2obj = x2.lock().unwrap();
-    // x2obj.change("new".to_string());
-    // drop(x2obj);
-    // drop(x2);
-    // drop(x3);
-
-    // drop(x);
-    // println!("n=>{:?}",v);
+    for handle in handles {
+         match timeout(Duration::from_secs(5), handle).await {
+            Ok(result) => {
+                if let Err(e) = result {
+                    error!("error in shutting down client: {:?}", e);
+                }
+            }
+            Err(_) => {
+                warn!("client task timed out during shutdown");
+            }
+        }
+    }
 
     Ok(())
-}
-
-#[derive(Debug)]
-struct Name {
-    name: String,
-}
-
-impl Name {
-    fn change(&mut self, new_name: String) {
-        self.name = new_name;
-    }
-}
-
-impl Drop for Name {
-    fn drop(&mut self) {
-        println!("dropping {} ", self.name);
-        drop(self)
-    }
 }
 
 async fn signal_handlers(shutdown_tx: Sender<()>) {
@@ -115,5 +100,3 @@ async fn signal_handlers(shutdown_tx: Sender<()>) {
        }
     }
 }
-
-

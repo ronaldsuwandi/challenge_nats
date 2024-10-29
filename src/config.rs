@@ -1,10 +1,8 @@
 use std::fs;
 use serde::Deserialize;
-// use crate::load_balancer::Server;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    // pub servers: Vec<Server>,
     pub listener: String,
 }
 

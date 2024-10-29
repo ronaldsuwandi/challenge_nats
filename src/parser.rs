@@ -2,8 +2,8 @@ use std::str::from_utf8;
 use log::error;
 use thiserror::Error;
 use ParserState::*;
-use crate::commands::Command;
-use crate::commands::Command::*;
+use crate::commands::ClientCommand;
+use crate::commands::ClientCommand::*;
 use crate::parser::ParseError::{InvalidInput, NotAPositiveInt};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -100,17 +100,17 @@ impl ClientRequest {
         self.msg_size = 0;
     }
 
-    fn parse_error(&mut self) -> Result<Command, ParseError> {
+    fn parse_error(&mut self) -> Result<ClientCommand, ParseError> {
         self.reset_state();
         Err(InvalidInput)
     }
 
-    fn return_command(&mut self, command: Command) -> Result<Command, ParseError> {
+    fn return_command(&mut self, command: ClientCommand) -> Result<ClientCommand, ParseError> {
         self.reset_state();
         Ok(command)
     }
 
-    pub fn parse(&mut self, buf: &[u8]) -> Result<Command, ParseError> {
+    pub fn parse(&mut self, buf: &[u8]) -> Result<ClientCommand, ParseError> {
         let mut msg_counter: usize = 0;
 
         for b in buf {
@@ -417,7 +417,7 @@ mod test {
     #[test_case("PUB subject 5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command")]
     #[test_case("PUB\tsubject\t5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command with tab")]
     #[test_case("PUB subject 0\r\n\r\n", Pub{subject: "subject".to_string(), msg: "".to_string()}; "pub command empty message")]
-    fn test_parse_ok(input: &str, expected: Command) {
+    fn test_parse_ok(input: &str, expected: ClientCommand) {
         let mut client = ClientRequest::new();
         let actual = client.parse(input.as_bytes()).unwrap();
         assert_eq!(expected, actual);
