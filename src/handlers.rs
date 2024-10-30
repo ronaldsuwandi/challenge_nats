@@ -1,6 +1,5 @@
 use io::ErrorKind::NotConnected;
 use std::io;
-use std::str::from_utf8;
 use std::sync::atomic::Ordering::SeqCst;
 use crate::commands::MainCommand::{Connect, Disconnect, InitClient};
 use crate::commands::{ClientCommand, MainCommand};
@@ -13,7 +12,7 @@ use tokio::net::TcpStream;
 
 impl Server {
     pub async fn handle(&self, mut socket: TcpStream) {
-        let mut req_buffer = [0; 96];
+        let mut req_buffer = [0; 4096];
         let mut client_request = ClientRequest::new();
 
         if let Err(e) = self.handle_new_connection(&mut socket).await {
@@ -41,19 +40,25 @@ impl Server {
                             break;
                         }
                         Ok(n) => {
-                            info!("input = {}", from_utf8(&req_buffer[0..n]).unwrap());
+                            info!("n = {}", n);
+                            let mut start = 0;
 
-                            match client_request.parse(&req_buffer[0..n]) {
-                                Ok(cmd) => {
-                                    info!("command={:?}", cmd);
-                                    self.handle_commands(cmd, &mut socket, client_id).await;
-                                }
+                            while start < n {
+                                let (parsed, bytes_read) =  client_request.parse(&req_buffer[start..n]);
+                                match parsed {
+                                    Ok(cmd) => {
+                                        info!("command={:?}", cmd);
+                                        self.handle_commands(cmd, &mut socket, client_id).await;
+                                    }
 
-                                Err(e) => {
-                                    error!("error parsing command: {}", e);
-                                    let _ = socket.write_all(b"-ERR\n").await;
+                                    Err(e) => {
+                                        error!("error parsing command: {}", e);
+                                        let _ = socket.write_all(b"-ERR\n").await;
+                                    }
                                 }
-                            };
+                                start += bytes_read + 1;
+                            }
+                            info!("ok done, waiting for next");
                         }
                         Err(e) => {
                             error!("error: {}", e);
@@ -72,6 +77,7 @@ impl Server {
 
                             buf.extend_from_slice(response.as_bytes());
                             buf.extend_from_slice(msg_bytes);
+                            buf.push(b'\r');
                             buf.push(b'\n');
 
                             if let Err(e) = socket.write_all(buf.as_slice()).await {
@@ -105,6 +111,7 @@ impl Server {
             "hostname": local_addr.ip().to_string(),
             "port": local_addr.port(),
             "client_ip": peer_addr.ip().to_string(),
+            "max_payload": 1048576,
         });
 
         let response = format!("INFO {}\n", info);
@@ -124,8 +131,7 @@ impl Server {
         Ok(())
     }
 
-    async fn handle_ping(&self, client_id: u32, socket: &mut TcpStream) -> Result<(), Error> {
-        self.check_client_connected(client_id).await?;
+    async fn handle_ping(&self, _: u32, socket: &mut TcpStream) -> Result<(), Error> {
         socket.write_all(b"PONG\r\n").await?;
         Ok(())
     }

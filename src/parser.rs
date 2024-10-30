@@ -1,5 +1,5 @@
 use std::str::from_utf8;
-use log::{error, info};
+use log::{error};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ParserState::*;
@@ -131,14 +131,10 @@ impl ClientRequest {
         Ok(command)
     }
 
-    pub fn parse(&mut self, buf: &[u8]) -> Result<ClientCommand, ParseError> {
+    pub fn parse(&mut self, buf: &[u8]) -> (Result<ClientCommand, ParseError>, usize) {
         let mut msg_counter: usize = 0;
-
-        for b in buf {
+        for (i, b) in buf.iter().enumerate() {
             let c: char = (*b).into();
-
-            info!("parser c = {} -> {}", c as u8, c);
-
             match self.parser_state {
                 OpStart => {
                     match c {
@@ -146,51 +142,51 @@ impl ClientRequest {
                         'P' | 'p' => self.parser_state = OpP,
                         'S' | 's' => self.parser_state = OpS,
                         'U' | 'u' => self.parser_state = OpU,
-                        '\r' | '\n' => return self.return_command(Noop),
-                        _ => return self.parse_error(),
+                        '\r' | '\n' => return (self.return_command(Noop), i),
+                        _ => return (self.parse_error(), i),
                     }
                 }
 
                 OpC => {
                     match c {
                         'O' | 'o' => self.parser_state = OpCo,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpCo => {
                     match c {
                         'N' | 'n' => self.parser_state = OpCon,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpCon => {
                     match c {
                         'N' | 'n' => self.parser_state = OpConn,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpConn => {
                     match c {
                         'E' | 'e' => self.parser_state = OpConne,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpConne => {
                     match c {
                         'C' | 'c' => self.parser_state = OpConnec,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpConnec => {
                     match c {
                         'T' | 't' => self.parser_state = OpConnect,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpConnect => {
                     match c {
                         ' ' | '\t' => self.parser_state = ConnectArg,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
 
@@ -204,9 +200,9 @@ impl ClientRequest {
                             }
 
                             return if let Ok(opts) = serde_json::from_str::<ClientConnectOpts>(&arg[..]) {
-                                self.return_command(Connect(opts))
+                                (self.return_command(Connect(opts)), i)
                             } else {
-                                self.parse_error()
+                                (self.parse_error(), i)
                             }
                         }
                         '\r' => {} // ignore
@@ -221,61 +217,57 @@ impl ClientRequest {
                         'I' | 'i' => self.parser_state = OpPi,
                         'O' | 'o' => self.parser_state = OpPo,
                         'U' | 'u' => self.parser_state = OpPu,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPi => {
                     match c {
                         'N' | 'n' => self.parser_state = OpPin,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPin => {
                     match c {
                         'G' | 'g' => self.parser_state = OpPing,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPing => {
                     match c {
-                        '\n' => {
-                            return self.return_command(Ping);
-                        }
+                        '\n' => return (self.return_command(Ping), i),
                         '\r' => {}
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPo => {
                     match c {
                         'N' | 'n' => self.parser_state = OpPon,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPon => {
                     match c {
                         'G' | 'g' => self.parser_state = OpPong,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPong => {
                     match c {
-                        '\n' => {
-                            return self.return_command(Pong);
-                        }
+                        '\n' => return (self.return_command(Pong), i),
                         '\r' => {}
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPu => {
                     match c {
                         'B' | 'b' => self.parser_state = OpPub,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpPub => {
                     match c {
                         ' ' | '\t' => self.parser_state = PubArg,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 PubArg => {
@@ -284,7 +276,7 @@ impl ClientRequest {
                             let args = split_arg(&self.arg_buffer);
 
                             if args.len() != 2 {
-                                return self.parse_error();
+                                return (self.parse_error(), i);
                             }
 
                             match parse_uint(&args[1]) {
@@ -295,7 +287,7 @@ impl ClientRequest {
                                 }
                                 Err(e) => {
                                     error!("error parsing number: {}", e);
-                                    return self.parse_error();
+                                    return (self.parse_error(), i);
                                 }
                             }
                         }
@@ -307,29 +299,24 @@ impl ClientRequest {
                 }
                 PubMsg => {
                     match c {
-                        '\n' => {
-                            if msg_counter != self.msg_size {
-                                error!("message size mismatch");
-                                return self.parse_error();
-                            }
-
+                        '\r' => {
                             let arg: String = self.args[0].iter().collect();
                             return match from_utf8(&self.msg_buffer) {
                                 Ok(msg) => {
-                                    self.return_command(Pub { subject: arg, msg: msg.to_string() })
+                                    (self.return_command(Pub { subject: arg, msg: msg.to_string() }), i)
                                 }
                                 Err(e) => {
                                     error!("error parsing utf8 PUB message for subject {}: {}", arg, e);
-                                    self.parse_error()
+                                    (self.parse_error(), i)
                                 }
                             };
                         }
-                        '\r' => {} // ignore
+                        // somehow for PUB we can't use \n
                         _ => {
                             msg_counter += 1;
                             if msg_counter > self.msg_size {
-                                error!("message size mismatch");
-                                return self.parse_error();
+                                error!("message size mismatch. counter = {}, msg size = {}", msg_counter, self.msg_size);
+                                return (self.parse_error(), i);
                             }
                             self.msg_buffer.push(*b);
                         }
@@ -339,19 +326,19 @@ impl ClientRequest {
                 OpS => {
                     match c {
                         'U' | 'u' => self.parser_state = OpSu,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpSu => {
                     match c {
                         'B' | 'b' => self.parser_state = OpSub,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpSub => {
                     match c {
                         ' ' | '\t' => self.parser_state = SubArg,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 SubArg => {
@@ -359,13 +346,13 @@ impl ClientRequest {
                         '\n' => {
                             let args = split_arg(&self.arg_buffer);
                             if args.len() != 2 {
-                                return self.parse_error();
+                                return (self.parse_error(), i);
                             }
 
-                            return self.return_command(Sub {
+                            return (self.return_command(Sub {
                                 subject: args[0].iter().collect(),
                                 id: args[1].iter().collect(),
-                            });
+                            }), i);
                         }
                         '\r' => {} // ignore
                         _ => {
@@ -376,39 +363,39 @@ impl ClientRequest {
                 OpU => {
                     match c {
                         'N' | 'n' => self.parser_state = OpUn,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpUn => {
                     match c {
                         'S' | 's' => self.parser_state = OpUns,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpUns => {
                     match c {
                         'U' | 'u' => self.parser_state = OpUnsu,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpUnsu => {
                     match c {
                         'B' | 'b' => self.parser_state = OpUnsub,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 OpUnsub => {
                     match c {
                         ' ' | '\t' => self.parser_state = UnsubArg,
-                        _ => return self.parse_error(),
+                        _ => return (self.parse_error(), i),
                     }
                 }
                 UnsubArg => {
                     match c {
                         '\n' => {
-                            return self.return_command(Unsub {
+                            return (self.return_command(Unsub {
                                 id: self.arg_buffer.iter().collect(),
-                            });
+                            }), i);
                         }
                         '\r' => {} // ignore
                         _ => {
@@ -420,7 +407,7 @@ impl ClientRequest {
         }
 
 
-        Ok(Noop)
+        (Ok(Noop), buf.len())
     }
 
     pub fn new() -> Self {
@@ -478,7 +465,7 @@ mod test {
     fn test_parse_fail(input: &str, expected: ParseError) {
         init();
         let mut client = ClientRequest::new();
-        let actual = client.parse(input.as_bytes()).unwrap_err();
+        let actual = client.parse(input.as_bytes()).0.unwrap_err();
         assert_eq!(expected, actual);
     }
 
@@ -494,7 +481,7 @@ mod test {
     #[test_case("UNSUB id\r\n", Unsub{id: "id".to_string()}; "unsub command")]
     fn test_parse_ok(input: &str, expected: ClientCommand) {
         let mut client = ClientRequest::new();
-        let actual = client.parse(input.as_bytes()).unwrap();
+        let actual = client.parse(input.as_bytes()).0.unwrap();
         assert_eq!(expected, actual);
     }
 
@@ -519,5 +506,14 @@ mod test {
         init();
         let actual = parse_uint(&input);
         assert_eq!(expected_output, actual);
+    }
+
+    #[test_case("PIN\r\nPING", 3; "invalid ping")]
+    #[test_case("PING\r\n", 5; "correct ping")]
+    #[test_case("PING\r\nPING\r\n", 5; "correct ping extra ignored")]
+    fn test_parse_return_bytes_read(input: &str, expected: usize) {
+        let mut client = ClientRequest::new();
+        let actual = client.parse(input.as_bytes()).1;
+        assert_eq!(expected, actual);
     }
 }
