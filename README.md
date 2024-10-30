@@ -62,24 +62,6 @@ Set up publisher
 nats bench coding.challenge --pub 10 --size 16 --msgs 10000
 ```
 
-## Initial failed approach
-Initially I attempted to use locks all the way but this ends up with dead end 
-because of the nature of push-mechanism combined with Rust' ownership/lifetime
-
-Because of push-mechanism, each client has to maintain connectivity so server 
-has to hold on into the tcp socket
-
-When PUB command is executed, it needs to write to socket that subscribed to 
-the subject. The issue is now that the other client handler is holding on to 
-the lock because the handler needs to continuously read from the socket
-
-As a result, PUB command got stuck as there is no way to obtain the lock 
-unless server releases the lock since writing into the socket requires 
-mutability
-
-The other way to get around this is to rewrite it and use message passing 
-approach
-
 ## Design
 Code are split into 5 main parts, namely
 - main: main loop, handling graceful shutdown
@@ -109,7 +91,26 @@ Overall the high level overview is as follow:
   finally write the MSG response into the socket
 
 ## Challenges
-I faced quite a number of challenges when working with this
+### Initial failed approach
+Initially I attempted to use locks all the way but this ends up with dead end 
+because of the nature of push-mechanism combined with Rust' ownership/lifetime
+
+Because of push-mechanism, each client has to maintain connectivity so server 
+has to hold on into the tcp socket
+
+When PUB command is executed, it needs to write to socket that subscribed to 
+the subject. The issue is now that the other client handler is holding on to 
+the lock because the handler needs to continuously read from the socket
+
+As a result, PUB command got stuck as there is no way to obtain the lock 
+unless server releases the lock since writing into the socket requires 
+mutability
+
+The other way to get around this is to rewrite it and use message passing 
+approach
+
+### Key challenges
+I faced quite a number of challenges when working with this project:
 - async + lifetime/ownership makes things much harder
 - for `PUB` command, somehow `nats bench` and `nats-server` only expects `\r` 
   to finish message body. This causes a big headache because I was initially 
