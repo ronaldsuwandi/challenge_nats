@@ -34,8 +34,14 @@ enum ParserState {
     OpS,
     OpSu,
     OpSub,
-
     SubArg,
+
+    OpU,
+    OpUn,
+    OpUns,
+    OpUnsu,
+    OpUnsub,
+    UnsubArg,
 }
 
 #[non_exhaustive]
@@ -122,6 +128,7 @@ impl ClientRequest {
                         'C' | 'c' => self.parser_state = OpC,
                         'P' | 'p' => self.parser_state = OpP,
                         'S' | 's' => self.parser_state = OpS,
+                        'U' | 'u' => self.parser_state = OpU,
                         '\r' | '\n' => return self.return_command(Noop),
                         _ => return self.parse_error(),
                     }
@@ -343,6 +350,49 @@ impl ClientRequest {
                         }
                     }
                 }
+                OpU => {
+                    match c {
+                        'N' | 'n' => self.parser_state = OpUn,
+                        _ => return self.parse_error(),
+                    }
+                }
+                OpUn => {
+                    match c {
+                        'S' | 's' => self.parser_state = OpUns,
+                        _ => return self.parse_error(),
+                    }
+                }
+                OpUns => {
+                    match c {
+                        'U' | 'u' => self.parser_state = OpUnsu,
+                        _ => return self.parse_error(),
+                    }
+                }
+                OpUnsu => {
+                    match c {
+                        'B' | 'b' => self.parser_state = OpUnsub,
+                        _ => return self.parse_error(),
+                    }
+                }
+                OpUnsub => {
+                    match c {
+                        ' ' | '\t' => self.parser_state = UnsubArg,
+                        _ => return self.parse_error(),
+                    }
+                }
+                UnsubArg => {
+                    match c {
+                        '\n' => {
+                            return self.return_command(Unsub {
+                                id: self.arg_buffer.iter().collect(),
+                            });
+                        }
+                        '\r' => {} // ignore
+                        _ => {
+                            self.arg_buffer.push(c);
+                        }
+                    }
+                }
             }
         }
 
@@ -380,6 +430,7 @@ mod test {
     #[test_case("PUB subject 3\r\nyes", PubMsg; "pub arg with msg len and message")]
     #[test_case("SUB subject", SubArg; "sub arg")]
     #[test_case("SUB subject id", SubArg; "sub arg with id")]
+    #[test_case("UNSUB subject", SubArg; "unsub arg with id")]
     fn test_parse_state_ok(input: &str, expected: ParserState) {
         init();
         let mut client = ClientRequest::new();
@@ -400,6 +451,7 @@ mod test {
     #[test_case("PUB subj 30\r\nyeah\r\n", InvalidInput; "pub message too short")]
     #[test_case("SUB\r\n", InvalidInput; "sub without arg")]
     #[test_case("SUB s\r\n", InvalidInput; "sub not enough arg")]
+    #[test_case("UNSUB\r\n", InvalidInput; "unsub without arg")]
     fn test_parse_fail(input: &str, expected: ParseError) {
         init();
         let mut client = ClientRequest::new();
@@ -411,16 +463,12 @@ mod test {
     #[test_case("CONNECT\t{}\r\n", Connect("{}".to_string()); "connect with tab")]
     #[test_case("PING\r\n", Ping; "ping command")]
     #[test_case("PONG\r\n", Pong; "pong command")]
-    #[test_case("SUB subject id\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command"
-    )]
-    #[test_case("SUB\tsubject\tid\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command with tab"
-    )]
-    #[test_case("PUB subject 5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command"
-    )]
-    #[test_case("PUB\tsubject\t5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command with tab"
-    )]
-    #[test_case("PUB subject 0\r\n\r\n", Pub{subject: "subject".to_string(), msg: "".to_string()}; "pub command empty message"
-    )]
+    #[test_case("SUB subject id\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command")]
+    #[test_case("SUB\tsubject\tid\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command with tab")]
+    #[test_case("PUB subject 5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command")]
+    #[test_case("PUB\tsubject\t5\r\nhello\r\n", Pub{subject: "subject".to_string(), msg: "hello".to_string()}; "pub command with tab")]
+    #[test_case("PUB subject 0\r\n\r\n", Pub{subject: "subject".to_string(), msg: "".to_string()}; "pub command empty message")]
+    #[test_case("UNSUB id\r\n", Unsub{id: "id".to_string()}; "unsub command")]
     fn test_parse_ok(input: &str, expected: ClientCommand) {
         let mut client = ClientRequest::new();
         let actual = client.parse(input.as_bytes()).unwrap();

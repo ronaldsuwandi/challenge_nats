@@ -136,13 +136,23 @@ impl Server {
         socket.write_all(b"+OK\n").await?;
         Ok(())
     }
-
+    
+    async fn handle_unsub(&self, subscription_id: String, client_id: u32, socket: &mut TcpStream) -> Result<(), Error> {
+        info!("client_id {} unsubscribing to {} ", client_id, subscription_id);
+        if let Err(e) = self.main_tx.send(MainCommand::Unsubscribe { client_id, subscription_id }).await {
+            error!("error sending to main channel: {}", e);
+        }
+        socket.write_all(b"+OK\n").await?;
+        Ok(())
+    }
+    
     async fn handle_commands(&self, cmd: ClientCommand, socket: &mut TcpStream, client_id: u32) {
         let cmd_result = match cmd {
             ClientCommand::Noop => { Ok(()) }
             ClientCommand::Connect(_) => self.handle_connect(socket).await,
             ClientCommand::Pub { subject, msg } => self.handle_pub(subject, msg, socket).await,
             ClientCommand::Sub { subject, id } => self.handle_sub(subject, id, client_id, socket).await,
+            ClientCommand::Unsub { id } => self.handle_unsub(id, client_id, socket).await,
             ClientCommand::Ping => self.handle_ping(socket).await,
             ClientCommand::Pong => { Ok(()) }
         };

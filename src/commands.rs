@@ -10,6 +10,7 @@ pub enum ClientCommand {
     Connect(String),
     Pub { subject: String, msg: String },
     Sub { subject: String, id: String },
+    Unsub { id: String },
     Ping,
     Pong,
 }
@@ -20,6 +21,7 @@ pub enum MainCommand {
     Connect { client_id: u32, tx: Sender<MainCommand> },
     Disconnect { client_id: u32 },
     Subscribe { client_id: u32, subject: String, subscription_id: String },
+    Unsubscribe { client_id: u32, subscription_id: String },
     Publish { subject: String, msg: String },
     PublishedMessage { subject: String, msg: String, subscription_id: String },
     ShutDown,
@@ -37,46 +39,79 @@ impl Server {
         let mut clients_tx = self.clients_tx.write().await;
         clients_tx.remove(&client_id);
 
-        // TODO do we need to update atomically? having slight inconsistency is fine right? some warning message but is this staff quality?
-        // cid->sid
-        //c1 -> [s1]
-        //c2 -> [s1,s2]
-        // subj->sids
-        //s -> [s1,s2]
-        // sid->subj
-        //s1 -> [s]
-        //s2 -> [s]
-        // sid->cid
-        //s1 -> [c1,c2]
-        //s2 -> [c2]
-
-        // TODO for now just focus on cid
-        let mut subscription_id_to_client_id = self.subscription_id_to_client_id.write().await;
-        let mut client_id_to_subscription_id = self.client_id_to_subscription_id.write().await;
-        if let Some(subscription_ids) = client_id_to_subscription_id.get(&client_id) {
+        let mut lock = self.write_locks().await;
+        if let Some(subscription_ids) = lock.client_id_to_subscription_id.get(&client_id) {
             for subscription_id in subscription_ids {
-                if let Some(client_ids) = subscription_id_to_client_id.get_mut(subscription_id) {
+                if let Some(client_ids) = lock.subscription_id_to_client_id.get_mut(subscription_id) {
                     client_ids.remove(&client_id);
+
+                    if !client_ids.is_empty() {
+                        continue;
+                    }
+
+                    // clean up the rest if no more client connected to this id
+                    if let Some(subjects) = lock.subscription_id_to_subject.get(subscription_id) {
+                        for subject in subjects {
+                            if let Some(subscription_ids) = lock.subscription_subject_to_id.get_mut(subject) {
+                                subscription_ids.remove(subscription_id);
+                            }
+                        }
+                        lock.subscription_id_to_subject.remove(subscription_id);
+                    }
                 }
             }
         }
-        client_id_to_subscription_id.remove(&client_id);
+        lock.client_id_to_subscription_id.remove(&client_id);
 
         debug!("client id {} disconnected", client_id);
         debug!("clients connected: {}", clients_tx.len());
     }
 
     pub async fn process_subscribe(&self, client_id: u32, subject: String, subscription_id: String) {
-        let _ = self.lock.lock().await;
-        // update 4 maps atomically
+        let locks = self.write_locks().await;
+        insert_to_subscription_map(locks.subscription_subject_to_id, subject.clone(), subscription_id.clone());
+        insert_to_subscription_map(locks.subscription_id_to_subject, subscription_id.clone(), subject.clone());
+        insert_to_subscription_map(locks.subscription_id_to_client_id, subscription_id.clone(), client_id);
+        insert_to_subscription_map(locks.client_id_to_subscription_id, client_id, subscription_id.clone());
+    }
+
+    pub async fn process_unsubscribe(&self, client_id: u32, subscription_id: String) {
+        let mut lock = self.write_locks().await;
+
+        if let Some(subscription_ids) = lock.client_id_to_subscription_id.get_mut(&client_id) {
+            subscription_ids.remove(&subscription_id);
+        }
+        if let Some(client_ids) = lock.subscription_id_to_client_id.get_mut(&subscription_id) {
+            client_ids.remove(&client_id);
+
+            if !client_ids.is_empty() {
+                return;
+            }
+        }
+
+        // clean up the rest if no more client connected to this id
+        if let Some(subjects) = lock.subscription_id_to_subject.get(&subscription_id) {
+            for subject in subjects {
+                if let Some(subscription_ids) = lock.subscription_subject_to_id.get_mut(subject) {
+                    subscription_ids.remove(&subscription_id);
+                }
+            }
+           lock.subscription_id_to_subject.remove(&subscription_id);
+        }
+    }
+
+    // ensure that locks are obtained in the same order
+    async fn write_locks(&self) -> MapWriteLocks {
         let subscription_subject_to_id = self.subscription_subject_to_id.write().await;
         let subscription_id_to_subject = self.subscription_id_to_subject.write().await;
         let subscription_id_to_client_id = self.subscription_id_to_client_id.write().await;
         let client_id_to_subscription_id = self.client_id_to_subscription_id.write().await;
-        insert_to_subscription_map(subscription_subject_to_id, subject.clone(), subscription_id.clone());
-        insert_to_subscription_map(subscription_id_to_subject, subscription_id.clone(), subject.clone());
-        insert_to_subscription_map(subscription_id_to_client_id, subscription_id.clone(), client_id);
-        insert_to_subscription_map(client_id_to_subscription_id, client_id, subscription_id.clone());
+        MapWriteLocks {
+            subscription_subject_to_id,
+            subscription_id_to_subject,
+            subscription_id_to_client_id,
+            client_id_to_subscription_id
+        }
     }
 
     pub async fn process_publish(&self, subject: String, msg: String) {
@@ -120,6 +155,13 @@ impl Server {
             }
         }
     }
+}
+
+struct MapWriteLocks<'a> {
+    subscription_subject_to_id: RwLockWriteGuard<'a, HashMap<String, HashSet<String>>>,
+    subscription_id_to_subject: RwLockWriteGuard<'a, HashMap<String, HashSet<String>>>,
+    subscription_id_to_client_id: RwLockWriteGuard<'a, HashMap<String, HashSet<u32>>>,
+    client_id_to_subscription_id: RwLockWriteGuard<'a, HashMap<u32, HashSet<String>>>,
 }
 
 fn insert_to_subscription_map<K, V>(mut map: RwLockWriteGuard<HashMap<K, HashSet<V>>>, key: K, value: V)
