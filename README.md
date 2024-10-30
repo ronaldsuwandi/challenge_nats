@@ -62,8 +62,6 @@ Set up publisher
 nats bench coding.challenge --pub 10 --size 16 --msgs 10000
 ```
 
-OR browse to http://localhost:8080
-
 ## Initial failed approach
 Initially I attempted to use locks all the way but this ends up with dead end 
 because of the nature of push-mechanism combined with Rust' ownership/lifetime
