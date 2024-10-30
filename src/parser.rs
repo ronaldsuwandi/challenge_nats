@@ -132,7 +132,6 @@ impl ClientRequest {
     }
 
     pub fn parse(&mut self, buf: &[u8]) -> (Result<ClientCommand, ParseError>, usize) {
-        let mut msg_counter: usize = 0;
         for (i, b) in buf.iter().enumerate() {
             let c: char = (*b).into();
             match self.parser_state {
@@ -299,7 +298,11 @@ impl ClientRequest {
                 }
                 PubMsg => {
                     match c {
-                        '\r' => {
+                        '\r'|'\n' => {
+                            if  self.msg_buffer.len() != self.msg_size {
+                                error!("message size mismatch. counter = {}, msg size = {}", self.msg_buffer.len(), self.msg_size);
+                                return (self.parse_error(), i);
+                            }
                             let arg: String = self.args[0].iter().collect();
                             return match from_utf8(&self.msg_buffer) {
                                 Ok(msg) => {
@@ -311,11 +314,9 @@ impl ClientRequest {
                                 }
                             };
                         }
-                        // somehow for PUB we can't use \n
                         _ => {
-                            msg_counter += 1;
-                            if msg_counter > self.msg_size {
-                                error!("message size mismatch. counter = {}, msg size = {}", msg_counter, self.msg_size);
+                            if self.msg_buffer.len() > self.msg_size {
+                                error!("message size mismatch. counter = {}, msg size = {}", self.msg_buffer.len(), self.msg_size);
                                 return (self.parse_error(), i);
                             }
                             self.msg_buffer.push(*b);
@@ -458,7 +459,7 @@ mod test {
     #[test_case("PUB subj -3\r\nyes\r\n", InvalidInput; "pub message invalid negative size")]
     #[test_case("PUB subj x\r\nyes\r\n", InvalidInput; "pub message invalid size not a number")]
     #[test_case("PUB subj 3\r\ntoolong\r\n", InvalidInput; "pub message too long")]
-    #[test_case("PUB subj 30\r\nyeah\r\n", InvalidInput; "pub message too short")]
+    #[test_case("PUB subj 300\r\nyeah\r\n", InvalidInput; "pub message too short")]
     #[test_case("SUB\r\n", InvalidInput; "sub without arg")]
     #[test_case("SUB s\r\n", InvalidInput; "sub not enough arg")]
     #[test_case("UNSUB\r\n", InvalidInput; "unsub without arg")]
