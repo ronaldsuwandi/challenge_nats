@@ -21,7 +21,7 @@ use crate::commands::MainCommand;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::Builder::from_env(Env::default()
-        .default_filter_or("debug"))
+        .default_filter_or("warn"))
         .init();
 
     let conf_path = env::args().nth(1).unwrap_or_else(|| { "config.toml".to_string() });
