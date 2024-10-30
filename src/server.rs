@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32};
 use log::{info, warn};
 use tokio::sync;
 use tokio::sync::{RwLock};
@@ -15,8 +15,22 @@ pub struct Server {
     pub subscription_id_to_client_id: RwLock<HashMap<String, HashSet<u32>>>,
     pub client_id_to_subscription_id: RwLock<HashMap<u32, HashSet<String>>>,
 
-    pub clients_tx: RwLock<HashMap<u32, Sender<MainCommand>>>,
+    pub clients_tx: RwLock<HashMap<u32, (Sender<MainCommand>, ClientState)>>,
     pub main_tx: Sender<MainCommand>,
+}
+
+pub struct ClientState {
+    pub connected: bool,
+    pub verbose: bool,
+}
+
+impl Default for ClientState {
+    fn default() -> Self {
+        Self {
+            connected: false,
+            verbose: false,
+        }
+    }
 }
 
 impl Server {
@@ -25,7 +39,6 @@ impl Server {
 
         (Server {
             client_id: AtomicU32::new(0),
-
             subscription_subject_to_id: RwLock::new(HashMap::new()),
             subscription_id_to_subject: RwLock::new(HashMap::new()),
             subscription_id_to_client_id: RwLock::new(HashMap::new()),
@@ -40,7 +53,8 @@ impl Server {
             info!("received command: {:?}", command);
             match command {
                 MainCommand::Noop => {}
-                MainCommand::Connect { client_id, tx } => self.process_connect(client_id, tx).await,
+                MainCommand::InitClient { client_id, tx } => self.process_init_client(client_id, tx).await,
+                MainCommand::Connect { client_id, client_connect_opts } => self.process_connect(client_id, client_connect_opts).await,
                 MainCommand::Disconnect { client_id } => self.process_disconnect(client_id).await,
                 MainCommand::Subscribe { client_id, subject, subscription_id } => self.process_subscribe(client_id, subject, subscription_id).await,
                 MainCommand::Unsubscribe { client_id, subscription_id } => self.process_unsubscribe(client_id, subscription_id).await,

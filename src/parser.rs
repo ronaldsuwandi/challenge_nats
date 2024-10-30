@@ -1,5 +1,6 @@
 use std::str::from_utf8;
-use log::error;
+use log::{error, info};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ParserState::*;
 use crate::commands::ClientCommand;
@@ -97,6 +98,20 @@ pub struct ClientRequest {
     args: Vec<Vec<char>>,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ClientConnectOpts {
+    #[serde(default)]
+    pub verbose: bool,
+}
+
+impl Default for ClientConnectOpts {
+    fn default() -> Self {
+        ClientConnectOpts{
+            verbose: false,
+        }
+    }
+}
+
 impl ClientRequest {
     fn reset_state(&mut self) {
         self.parser_state = OpStart;
@@ -121,6 +136,8 @@ impl ClientRequest {
 
         for b in buf {
             let c: char = (*b).into();
+
+            info!("parser c = {} -> {}", c as u8, c);
 
             match self.parser_state {
                 OpStart => {
@@ -181,10 +198,16 @@ impl ClientRequest {
                     match c {
                         '\n' => {
                             let arg: String = self.arg_buffer.iter().collect();
-                            if !arg.eq("{}") {
-                                return self.parse_error();
+
+                            if let Err(e) = serde_json::from_str::<ClientConnectOpts>(&arg[..]) {
+                                error!("error parsing! {}",e);
                             }
-                            return self.return_command(Connect(arg));
+
+                            return if let Ok(opts) = serde_json::from_str::<ClientConnectOpts>(&arg[..]) {
+                                self.return_command(Connect(opts))
+                            } else {
+                                self.parse_error()
+                            }
                         }
                         '\r' => {} // ignore
                         _ => {
@@ -423,14 +446,14 @@ mod test {
 
     #[test_case("PING", OpPing; "ping")]
     #[test_case("PONG", OpPong; "pong")]
-    #[test_case("CONNECT {}", ConnectArg; "connect arg")]
+    #[test_case("CONNECT {\"verbose\": true}", ConnectArg; "connect arg")]
     #[test_case("PUB subject", PubArg; "pub arg")]
     #[test_case("PUB subject 3", PubArg; "pub arg with msg len")]
     #[test_case("PUB subject 3\r\n", PubMsg; "pub arg with msg len before message")]
     #[test_case("PUB subject 3\r\nyes", PubMsg; "pub arg with msg len and message")]
     #[test_case("SUB subject", SubArg; "sub arg")]
     #[test_case("SUB subject id", SubArg; "sub arg with id")]
-    #[test_case("UNSUB subject", SubArg; "unsub arg with id")]
+    #[test_case("UNSUB subject", UnsubArg; "unsub arg with id")]
     fn test_parse_state_ok(input: &str, expected: ParserState) {
         init();
         let mut client = ClientRequest::new();
@@ -459,8 +482,8 @@ mod test {
         assert_eq!(expected, actual);
     }
 
-    #[test_case("CONNECT {}\r\n", Connect("{}".to_string()); "connect command")]
-    #[test_case("CONNECT\t{}\r\n", Connect("{}".to_string()); "connect with tab")]
+    #[test_case("CONNECT {}\r\n", Connect(ClientConnectOpts{verbose: false}); "connect command")]
+    #[test_case("CONNECT\t{\"verbose\": true}\r\n", Connect(ClientConnectOpts{verbose: true}); "connect with tab and argument")]
     #[test_case("PING\r\n", Ping; "ping command")]
     #[test_case("PONG\r\n", Pong; "pong command")]
     #[test_case("SUB subject id\r\n", Sub{subject: "subject".to_string(), id: "id".to_string()}; "sub command")]

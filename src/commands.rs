@@ -1,13 +1,14 @@
-use crate::server::Server;
+use crate::server::{ClientState, Server};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLockWriteGuard;
+use crate::parser::ClientConnectOpts;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClientCommand {
     Noop,
-    Connect(String),
+    Connect(ClientConnectOpts),
     Pub { subject: String, msg: String },
     Sub { subject: String, id: String },
     Unsub { id: String },
@@ -18,7 +19,8 @@ pub enum ClientCommand {
 #[derive(Debug)]
 pub enum MainCommand {
     Noop,
-    Connect { client_id: u32, tx: Sender<MainCommand> },
+    InitClient { client_id: u32, tx: Sender<MainCommand> },
+    Connect { client_id: u32, client_connect_opts: ClientConnectOpts },
     Disconnect { client_id: u32 },
     Subscribe { client_id: u32, subject: String, subscription_id: String },
     Unsubscribe { client_id: u32, subscription_id: String },
@@ -28,12 +30,26 @@ pub enum MainCommand {
 }
 
 impl Server {
-    pub async fn process_connect(&self, client_id: u32, tx: Sender<MainCommand>) {
+    pub async fn process_init_client(&self, client_id: u32, tx: Sender<MainCommand>) {
         let mut clients_tx = self.clients_tx.write().await;
-        clients_tx.insert(client_id, tx);
-        debug!("client id {} connected", client_id);
+        clients_tx.insert(client_id, (tx, ClientState::default()));
+        debug!("client id {} initialised", client_id);
         debug!("clients connected: {}", clients_tx.len());
     }
+
+    pub async fn process_connect(&self, client_id: u32, client_connect_opts: ClientConnectOpts) {
+        let mut clients_tx = self.clients_tx.write().await;
+        if let Some(pair) = clients_tx.get_mut(&client_id) {
+            pair.1 = ClientState {
+                connected: true,
+                verbose: client_connect_opts.verbose
+            }
+        } else {
+            error!("unable to process connect");
+        }
+        debug!("client id {} connected", client_id);
+    }
+
 
     pub async fn process_disconnect(&self, client_id: u32) {
         let mut clients_tx = self.clients_tx.write().await;
@@ -124,7 +140,7 @@ impl Server {
             for subscription_id in subscription_ids {
                 if let Some(client_ids) = subscription_id_to_client_id.get(subscription_id) {
                     for client_id in client_ids {
-                        if let Some(tx) = clients_tx.get(client_id) {
+                        if let Some((tx, _)) = clients_tx.get(client_id) {
                             send_message(
                                 *client_id,
                                 tx.clone(),
@@ -148,7 +164,7 @@ impl Server {
     pub async fn process_shutdown(&self) {
         info!("process shutdown");
         if let Ok(clients_tx) = self.clients_tx.try_read() {
-            for (client_id, tx) in clients_tx.iter() {
+            for (client_id, (tx, _)) in clients_tx.iter() {
                 if let Err(e) = tx.try_send(MainCommand::ShutDown) {
                     warn!("error sending shutdown message to client {}: {}", client_id, e);
                 }
