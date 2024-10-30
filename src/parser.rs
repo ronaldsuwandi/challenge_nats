@@ -98,18 +98,10 @@ pub struct ClientRequest {
     args: Vec<Vec<char>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct ClientConnectOpts {
     #[serde(default)]
     pub verbose: bool,
-}
-
-impl Default for ClientConnectOpts {
-    fn default() -> Self {
-        ClientConnectOpts{
-            verbose: false,
-        }
-    }
 }
 
 impl ClientRequest {

@@ -19,18 +19,10 @@ pub struct Server {
     pub main_tx: Sender<MainCommand>,
 }
 
+#[derive(Default)]
 pub struct ClientState {
     pub connected: bool,
     pub verbose: bool,
-}
-
-impl Default for ClientState {
-    fn default() -> Self {
-        Self {
-            connected: false,
-            verbose: false,
-        }
-    }
 }
 
 impl Server {
